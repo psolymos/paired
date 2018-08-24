@@ -2,7 +2,7 @@
 
 > Example point count data set with paired human and ARU data
 
-[![Linux build status](https://travis-ci.org/borealbirds/paired?branch=master)](https://travis-ci.org/borealbirds/paired)
+[![Linux build status](https://travis-ci.org/borealbirds/paired.svg?branch=master)](https://travis-ci.org/borealbirds/paired)
 
 The data set in the repository is under a [CC BY-SA 4.0 license](http://creativecommons.org/licenses/by-sa/4.0/).
 
