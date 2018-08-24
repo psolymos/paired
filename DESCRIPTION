@@ -5,7 +5,8 @@ Version: 0.0-1
 Date: 2018-08-23
 Author: Peter Solymos [cre, aut], Steven L. Van Wilgenburg [aut]
 Maintainer: Peter Solymos <solymos@ualberta.ca>
-Description: Data set from <doi:10.5751/ACE-00975-120113>.
+Description: Data set from Van Wilgenburg et al. 2016
+  <doi:10.5751/ACE-00975-120113>.
 URL: https://github.com/borealbirds/paired
 BugReports: https://github.com/borealbirds/paired/issues
 License: CC BY-SA 4.0
