@@ -1,0 +1,256 @@
+---
+title: "ARU standardization tutorial"
+output: pdf_document
+---
+
+## Intro
+
+Data analysis from the following manuscript:
+
+Van Wilgenburg, S. L., Sólymos, P., Kardynal, K. J. and Frey, M. D., 2017. Paired sampling standardizes point count data from humans and acoustic recorders. Avian Conservation and Ecology, 12(1):13. URL: [https://doi.org/10.5751/ACE-00975-120113](https://doi.org/10.5751/ACE-00975-120113)
+
+## Install data package
+
+```{r}
+#devtools::install_github("borealbirds/paired")
+library(paired)
+data(paired)
+summary(paired)
+x <- paired # make a copy
+```
+
+## Preliminaries
+
+Load required packages
+
+```{r}
+library(mefa4)
+library(MASS)
+library(detect)
+library(lme4)
+```
+
+Relevel survey type: set human point count as the reference
+
+```{r}
+x$SurveyType <- relevel(x$SurveyType, "HUM")
+```
+
+Remove species that commonly do flyovers or are otherwise inappropriate for pointcounts, set the minimun number of detections
+
+```{r}
+(aa <- table(x$SPECIES))
+SPP <- names(aa[aa >= 15])
+SPP <- SPP[!(SPP %in% c("AMCR","AMGO","BCFR","BLJA","CANG","COLO","COGO","COME","CORA","EVGR","FRGU","GRAJ","UNKN","RESQ","WOSP","WWCR","WISN","SACR","PISI","UNBI","LEYE","GRYE","WOFR","UNKN"))]
+x<-x[x$SPECIES %in% SPP,]
+nmin <- 15
+```
+
+Training and validation data set
+
+```{r}
+xv <- droplevels(x[x$RandomSel == 0,])
+x <- droplevels(x[x$RandomSel == 1,])
+```
+
+## EDR estimation
+
+```{r}
+xtdis <- Xtab(Count ~ PKEY + DISTANCE + SPECIES, x, subset=x$SurveyType == "HUM")
+for (i in 1:length(xtdis))
+    xtdis[[i]] <- as.matrix(xtdis[[i]][,c("0-49 m", "50-100 m", ">100 m")])
+ndis <- sapply(xtdis, function(z) sum(rowSums(z)>0))
+xtdis <- xtdis[ndis >= nmin]
+DDdis <- matrix(c(0.5, 1, Inf), nrow(xtdis[[1]]), 3, byrow=TRUE)
+xdis <- nonDuplicated(x, PKEY, TRUE)
+xdis <- xdis[rownames(xtdis[[1]]),]
+
+mdis <- list()
+for (i in 1:length(xtdis)) {
+    m <- cmulti(xtdis[[i]] | DDdis ~ 1, xdis, type = "dis")
+    if (!inherits(m, "try-error"))
+    mdis[[names(xtdis)[i]]] <- m
+}
+
+mdis <- lapply(xtdis, function(z) cmulti(z | DDdis ~ 1, type = "dis"))
+edrH <- sapply(mdis, function(z) exp(coef(z)))
+names(edrH) <- names(xtdis)
+edrH
+```
+
+## Singing rate estimation
+
+```{r}
+xtdurH <- Xtab(Count ~ PKEY + Interval + SPECIES, x, 
+               subset=x$SurveyType == "HUM")
+xtdurA <- Xtab(Count ~ PKEY + Interval + SPECIES, x, 
+               subset=x$SurveyType == "ARU")
+DDdur <- matrix(c(3, 5, 10), nrow(xtdurH[[1]]), 3, byrow=TRUE)
+xx <- xdis[rownames(xtdurH[[1]]),]
+ndurH <- sapply(xtdurH, function(z) sum(rowSums(z)>0))
+ndurA <- sapply(xtdurA, function(z) sum(rowSums(z)>0))
+
+OK <- ndurH >= nmin & ndurA >= nmin
+xtdurH <- xtdurH[OK]
+xtdurA <- xtdurA[OK]
+
+DDdur2 <- rbind(DDdur, DDdur)
+```
+
+
+Trying to include covariates (e.g. canopy closure)
+
+```{r}
+ndurH <- sapply(xtdurH, function(z) sum(rowSums(z)>0))
+ndurA <- sapply(xtdurA, function(z) sum(rowSums(z)>0))
+maxH <- sapply(xtdurH, function(z) max(rowSums(z)))
+maxA <- sapply(xtdurA, function(z) max(rowSums(z)))
+OK <- ndurH >= nmin & ndurA >= nmin & maxH > 1 & maxA > 1
+xtdurH <- xtdurH[OK]
+xtdurA <- xtdurA[OK]
+DDdur2 <- rbind(DDdur, DDdur)
+```
+
+Store models results for ARU effect on availability
+
+```{r}
+mdurA <- list()
+mdurH <- list()
+mdurHA <- list()
+mdurHA1 <- list() 
+for (i in 1:length(xtdurA)) {
+  yA <- as.matrix(xtdurA[[i]])[,c("0-3 min","3-5 min","5-10 min")]
+  yH <- as.matrix(xtdurH[[i]])[,c("0-3 min","3-5 min","5-10 min")]
+  mdurA[[names(xtdurA)[i]]] <- cmulti(yA | DDdur ~ 1, type = "rem")
+  mdurH[[names(xtdurA)[i]]] <- cmulti(yH | DDdur ~ 1, type = "rem")
+  yyy <- rbind(yH, yA)
+  aru01 <- rep(0:1, each=nrow(xtdurH[[i]]))
+  mdurHA[[names(xtdurA)[i]]] <- cmulti(yyy | DDdur2 ~ 1, type = "rem")
+  mdurHA1[[names(xtdurA)[i]]] <- cmulti(yyy | DDdur2 ~ aru01, type = "rem")
+}
+cfA <- sapply(mdurA, coef)
+names(cfA) <- names(mdurA)
+cfH <- sapply(mdurH, coef)
+names(cfH) <- names(mdurH)
+cfHA <- sapply(mdurHA, coef)
+names(cfHA) <- names(mdurHA)
+phiA <- exp(cfA)
+phiH <- exp(cfH)
+phiHA <- exp(cfHA) ## Availability from model with ARU effect
+```
+
+Confidence Intervals for removal model for availability including a fixed effect for ARU versus human observer
+
+```{r}
+ci <- t(sapply(mdurHA1, function(z) confint(z)[2,]))
+nrow(ci)
+
+nam <- rownames(ci)[rowSums(is.na(ci)) > 0 | rowSums(sign(ci)) != 0]
+
+ciHuman<-t(sapply(mdurH, function(z) confint(z)[1,]))
+ciARU<-t(sapply(mdurA, function(z) confint(z)[1,]))
+
+ciHuman<-round(1-exp(-10*exp(ciHuman)), 3)
+nrow(ciHuman)
+ciARU<-round(1-exp(-10*exp(ciARU)), 3)
+ciARU
+
+p10_H=round(1-exp(-10*exp(cfH)), 3)
+p10_A=round(1-exp(-10*exp(cfA)), 3)
+
+availability <- data.frame(ciHuman, p10_H, ciARU,p10_A)
+colnames(availability) <- c("LCLHuman", "UCLHuman",
+                            "meanHuman","LCLARU","UCLARU","meanARU")
+availability <- availability[,c("LCLHuman", "meanHuman",
+                                "UCLHuman","LCLARU","meanARU", "UCLARU")] 
+```
+
+These are the species where we have:
+
+- reasonable sample size from training data to estimate phi and edr
+- phi is not significantly different between aru and human
+
+```{r}
+namOK <- rownames(ci)[rowSums(sign(ci)) == 0]
+SPP <- intersect(names(edrH), namOK)
+SPP <- SPP[!(SPP %in% c("RESQ","UNKN"))]
+phiOK <- phiHA[SPP]
+edrOK <- edrH[SPP]
+```
+
+Validations starts here
+
+```{r}
+set.seed(1)
+kfold_results <- list()
+prop <- 0.75
+K <- 10
+
+spp <- "OVEN" # here comes the loop for species
+
+for (k in 1:K) {
+    cat("fold", k, "/", K, "\n")
+    flush.console()
+    calibration_levels <- sample(levels(x$SS), round(prop*nlevels(x$SS)))
+    tmp <- x[x$SS %in% calibration_levels,]
+    tmp$PKEYm <- droplevels(tmp$PKEYm)
+    xt <- as.matrix(Xtab(Count ~ PKEYm + SPECIES, tmp))
+    xxx <- nonDuplicated(x, PKEYm, TRUE)
+    xxx <- droplevels(xxx[rownames(xt),])
+
+    validation_levels <- levels(x$SS)[!(levels(x$SS) %in%
+        calibration_levels)]
+    tmpv <- x[x$SS %in% validation_levels,]
+    tmpv$PKEYm <- droplevels(tmpv$PKEYm)
+    xtv <- as.matrix(Xtab(Count ~ PKEYm + SPECIES, tmpv))
+    xxxv <- nonDuplicated(x, PKEYm, TRUE)
+    xxxv <- droplevels(xxxv[rownames(xtv),])
+
+    y <- xt[,spp]
+    C <- edrOK[spp]^2 * pi * (1-exp(-phiOK[spp]*10))
+    off <- rep(log(C), nrow(xxx))
+
+    mod0 <- glmer(y ~ 1 + (1|PKEY), xxx, offset=off, family=poisson)
+    mod1 <- glmer(y ~ SurveyType + (1|PKEY), xxx, offset=off, family=poisson)
+    delta_estimate <- sqrt(exp(fixef(mod1)[2]))
+    aic <- AIC(mod0, mod1)
+    aic$dAIC <- aic$AIC - min(aic$AIC)
+
+    yv <- xtv[,spp]
+    ## previous offset
+    off1 <- rep(log(C), nrow(xxxv))
+    mod0v <- glmer(yv ~ 1 + (1|PKEY), xxxv, offset=off1, family=poisson)
+    mod1v <- glmer(yv ~ SurveyType + (1|PKEY), xxxv, offset=off1, family=poisson)
+    ## offset with delta
+    off2 <- ifelse(xxxv$SurveyType == "HUM",
+        rep(log(C), nrow(xxxv)), rep(log(C) + log(delta_estimate^2), nrow(xxxv)))
+    mod2v <- glmer(yv ~ 1 + (1|PKEY), xxxv, offset=off2, family=poisson)
+    mod3v <- glmer(yv ~ SurveyType + (1|PKEY), xxxv, offset=off2, family=poisson)
+    aicv <- AIC(mod0v, mod1v, mod2v, mod3v)
+    aicv$dAIC <- aicv$AIC - min(aicv$AIC)
+
+    kfold_results[[k]] <- list(
+        calibration=aic,
+        validation=aicv,
+        delta=unname(delta_estimate),
+        yc=c(ARU=mean(y[xxx$SurveyType=="ARU"]), HUM=mean(y[xxx$SurveyType=="HUM"])),
+        yv=c(ARU=mean(y[xxxv$SurveyType=="ARU"]), HUM=mean(y[xxxv$SurveyType=="HUM"])))
+}
+
+sapply(kfold_results, function(z) rank(z$calibration[,"dAIC"]))
+sapply(kfold_results, function(z) rank(z$validation[,"dAIC"]))
+
+sapply(kfold_results, function(z) z$calibration[,"dAIC"])
+sapply(kfold_results, function(z) z$validation[,"dAIC"])
+
+delta <- sapply(kfold_results, function(z) z$delta)
+yratiov <- sapply(kfold_results, function(z) z$yv[1]/z$yv[2])
+summary(delta^2)
+summary(yratiov)
+
+plot(delta^2, yratiov, xlim=c(0.8,1.1), ylim=c(0.8,1.1), xlab="delta^2",
+    ylab="mean(Y_aru) / mean(Y_hum)")
+abline(0,1)
+abline(h=1,v=1)
+```
+
