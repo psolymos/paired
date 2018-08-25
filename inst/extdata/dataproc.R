@@ -1,4 +1,4 @@
-x <- read.csv("~/repos/paired/inst/extdata/aru-join-table_2016-AUG-22.csv")
+x <- read.csv("inst/extdata/aru-join-table_2016-AUG-22.csv")
 str(x)
 
 levels(x$TimeInterval)[levels(x$TimeInterval) == ""] <- "UNK"
