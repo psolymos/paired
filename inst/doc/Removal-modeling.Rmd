@@ -27,26 +27,26 @@ library(paired)
 library(mefa4)
 library(detect)
 data(paired)
-paired$SurveyType <- relevel(paired$SurveyType, "HUM")
-aa <- table(paired$SPECIES)
-SPP <- names(aa[aa >= 15])
-SPP <- SPP[!(SPP %in% c("AMCR","AMGO","BCFR","BLJA","CANG","COLO","COGO","COME","CORA","EVGR","FRGU","GRAJ","UNKN","RESQ","WOSP","WWCR","WISN","SACR","PISI","UNBI","LEYE","GRYE","WOFR","UNKN"))]
-paired<-paired[paired$SPECIES %in% SPP,]
-xt <- Xtab(Count ~ PKEY + Interval + SPECIES, paired, 
-               subset=paired$SurveyType == "HUM")[SPP]
 ```
 
 Pick a species and define the correspondin data set
 
 ```{r}
 spp <- "OVEN"
-Y <- as.matrix(xt[[spp]][,c("0-3 min", "3-5 min", "5-10 min")])
+xt <- Xtab(Count ~ PKEY + Interval, paired, 
+    subset=paired$SurveyType == "HUM" & paired$SPECIES == spp)
+
+Y <- as.matrix(xt[,c("0-3 min", "3-5 min", "5-10 min")])
 X <- nonDuplicated(paired[paired$SurveyType == "HUM",], 
-                   PKEY, TRUE)[rownames(Y),]
+    PKEY, TRUE)[rownames(Y),]
 i <- !is.na(X$Latitude)
 Y <- Y[i,]
-X <- X[i,]
+X <- X[i,c("JDAY", "TSSR")]
 D <- matrix(c(3, 5, 10), nrow(Y), 3, byrow=TRUE)
+dimnames(D) <- dimnames(Y)
+head(Y)
+head(X)
+head(D)
 ```
 
 Exponential
@@ -58,6 +58,10 @@ Me2 <- cmulti(Y | D ~ TSSR, X, type="rem")
 
 Me_AIC <- AIC(Me0, Me1, Me2)
 Me_AIC$dAIC <- Me_AIC$AIC - min(Me_AIC$AIC)
+
+MeBest <- get(rownames(Me_AIC)[Me_AIC$dAIC == 0])
+Me_AIC
+summary(MeBest)
 ```
 
 Mixture model:
@@ -69,6 +73,10 @@ Mf2 <- cmulti(Y | D ~ TSSR, X, type="fmix")
 
 Mf_AIC <- AIC(Mf0, Mf1, Mf2)
 Mf_AIC$dAIC <- Mf_AIC$AIC - min(Mf_AIC$AIC)
+
+MfBest <- get(rownames(Mf_AIC)[Mf_AIC$dAIC == 0])
+Mf_AIC
+summary(MfBest)
 ```
 
 ```{r}
@@ -78,68 +86,79 @@ Mm2 <- cmulti(Y | D ~ TSSR, X, type="mix")
 
 Mm_AIC <- AIC(Mm0, Mm1, Mm2)
 Mm_AIC$dAIC <- Mm_AIC$AIC - min(Mm_AIC$AIC)
+
+MmBest <- get(rownames(Mm_AIC)[Mm_AIC$dAIC == 0])
+Mm_AIC
+summary(MmBest)
 ```
 
 ```{r}
-MeBest <- get(rownames(Me_AIC)[Me_AIC$dAIC == 0])
-MfBest <- get(rownames(Mf_AIC)[Mf_AIC$dAIC == 0])
-MmBest <- get(rownames(Mm_AIC)[Mm_AIC$dAIC == 0])
 M_AIC <- AIC(MeBest, MfBest, MmBest)
 M_AIC$dAIC <- M_AIC$AIC - min(M_AIC$AIC)
-
-Me_AIC
-summary(MeBest)
-
-Mf_AIC
-summary(MfBest)
-
-Mm_AIC
-summary(MmBest)
-
 M_AIC
 ```
 
 ```{r}
 n <- 100
-JDAY <- seq(min(X$JDAY), max(X$JDAY), length.out=n)
+JDAY <- seq(min(X$JDAY), max(X$JDAY), length.out=n+1)
+TSSR <- seq(min(X$TSSR), max(X$TSSR), length.out=n+1)
+Duration <- seq(0, 10, length.out=n)
+col <- viridis::viridis(n)
 
-be <- coef(MeBest)
-pe <- 1-exp(-3*exp(be[1]+be[2]*JDAY))
-
-bf <- coef(MfBest)
-pf <- 1-plogis(bf[3])*exp(-3*exp(bf[1]+bf[2]*JDAY))
-
-bm <- coef(MmBest)
-pm <- 1-plogis(bm[2]+bm[3]*JDAY)*exp(-3*exp(bm[1]))
-
-op <- par(las=1)
-plot(JDAY, pe, ylim=c(0,1), type="l", main=spp,
+## Me
+b <- coef(MeBest)
+op <- par(las=1, mfrow=c(2,1), mar=c(4,4,2,2))
+p1 <- 1-exp(-3*exp(b[1]+b[2]*JDAY))
+plot(JDAY, p1, ylim=c(0,1), type="n", main=paste(spp, "Me"),
     ylab="P(availability)")
-lines(JDAY, pf, ylim=c(0,1), col=2)
-lines(JDAY, pm, ylim=c(0,1), col=4)
-legend("bottomright", bty="n", lty=1, col=c(1,2,4),
-    legend=c("Me", "Mf", "Mm"))
-par(op)
-```
-
-```{r}
-Duration <- seq(0, 10, length.out=100)
-op <- par(las=1)
+for (i in seq_len(n)) {
+    lines(JDAY[c(i,i+1)], p1[c(i,i+1)], col=col[i], lwd=2)
+}
 plot(Duration, Duration, type="n", ylim=c(0,1),
     ylab="P(availability)")
 for (i in seq_len(n)) {
-    pe <- 1-exp(-Duration*exp(be[1]+be[2]*JDAY[i]))
-    lines(Duration, pe, col=viridis::plasma(n, 0.2)[i])
+    p2 <- 1-exp(-Duration*exp(b[1]+b[2]*JDAY[i]))
+    lines(Duration, p2, col=col[i])
 }
+abline(v=3, col="grey")
+par(op)
+
+## Mf
+b <- coef(MfBest)
+op <- par(las=1, mfrow=c(2,1), mar=c(4,4,2,2))
+p1 <- 1-plogis(b[3])*exp(-3*exp(b[1]+b[2]*TSSR))
+plot(TSSR, p1, ylim=c(0,1), type="n", main=paste(spp, "Mf"),
+    ylab="P(availability)")
 for (i in seq_len(n)) {
-    pm <- 1-plogis(bm[2]+bm[3]*JDAY[i])*exp(-Duration*exp(bm[1]))
-    lines(Duration, pm, col=viridis::viridis(n, 0.2)[i])
+    lines(TSSR[c(i,i+1)], p1[c(i,i+1)], col=col[i], lwd=2)
 }
+plot(Duration, Duration, type="n", ylim=c(0,1),
+    ylab="P(availability)")
 for (i in seq_len(n)) {
-    pf <- 1-plogis(bf[3])*exp(-Duration*exp(bf[1]+bf[2]*JDAY[i]))
-    lines(Duration, pf, col=viridis::magma(n, 0.2)[i])
+    p2 <- 1-plogis(b[3])*exp(-Duration*exp(b[1]+b[2]*TSSR[i]))
+    lines(Duration, p2, col=col[i])
+}
+abline(v=3, col="grey")
+par(op)
+
+
+## Mm
+b <- coef(MmBest)
+op <- par(las=1, mfrow=c(2,1), mar=c(4,4,2,2))
+p1 <- 1-plogis(b[2]+b[3]*JDAY)*exp(-3*exp(b[1]))
+plot(JDAY, p1, ylim=c(0,1), type="n", main=paste(spp, "Mm"),
+    ylab="P(availability)")
+for (i in seq_len(n)) {
+    lines(JDAY[c(i,i+1)], p1[c(i,i+1)], col=col[i], lwd=2)
+}
+plot(Duration, Duration, type="n", ylim=c(0,1),
+    ylab="P(availability)")
+for (i in seq_len(n)) {
+    p2 <- 1-plogis(b[2]+b[3]*JDAY[i])*exp(-Duration*exp(b[1]))
+    lines(Duration, p2, col=col[i])
 }
 abline(v=3, col="grey")
 par(op)
 ```
+
 
