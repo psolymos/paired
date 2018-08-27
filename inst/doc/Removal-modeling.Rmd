@@ -59,9 +59,9 @@ Y <- Y[i,]
 X <- X[i,c("JDAY", "TSSR")]
 D <- matrix(c(3, 5, 10), nrow(Y), 3, byrow=TRUE)
 dimnames(D) <- dimnames(Y)
-head(X)
-head(Y)
-head(D)
+tail(X)
+tail(Y)
+tail(D)
 ```
 
 ## Time-invariant conventional removal model
