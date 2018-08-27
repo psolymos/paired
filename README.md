@@ -16,3 +16,5 @@ Install the package as
 ```R
 devtools::install_github("borealbirds/paired")
 ```
+
+[Here](https://github.com/borealbirds/paired/blob/master/inst/doc/ARU-analysis.Rmd) is a tutorial replicating the analyses from the paper.
